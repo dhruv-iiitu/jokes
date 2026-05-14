@@ -1,6 +1,5 @@
 package com.dhruv.jokes.ui.navigation
 
-import android.view.View
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,11 +30,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.dhruv.jokes.R
 import com.dhruv.jokes.ui.destinations.TopLevelDestination
-import com.dhruv.jokes.ui.viewmodel.JokesViewModel
 import com.dhruv.jokes.utils.addSoundEffect
 import com.dhruv.jokes.utils.toastMsg
 
@@ -48,19 +45,17 @@ data class BottomNavigationItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BottomNavigation(
-    viewModel: JokesViewModel = hiltViewModel(),
     bottomNavItems: List<BottomNavigationItem>
 ) {
-
-    var selectedIndex by remember {
-        mutableIntStateOf(0)
-    }
+    var selectedIndex by remember { mutableIntStateOf(0) }
     val navController = rememberNavController()
-    val view: View = LocalView.current
+    val view = LocalView.current
+
     Scaffold(
         topBar = {
             val context = LocalContext.current
-            TopAppBar(modifier = Modifier.padding(horizontal = 16.dp),
+            TopAppBar(
+                modifier = Modifier.padding(horizontal = 16.dp),
                 title = {
                     Text(text = "Jokes", fontFamily = FontFamily.Cursive, fontSize = 50.sp)
                 },
@@ -86,12 +81,13 @@ fun BottomNavigation(
                 },
                 navigationIcon = {
                     Image(
-                        modifier = Modifier.size(30.dp).clip(CircleShape),
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(CircleShape),
                         painter = painterResource(id = R.drawable.ic_app),
                         contentDescription = "app icon"
                     )
                 }
-
             )
         },
         bottomBar = {
@@ -104,27 +100,25 @@ fun BottomNavigation(
                             addSoundEffect(view)
                             navController.popBackStack()
                             selectedIndex = index
-                            if (selectedIndex == 1) {
-                                navController.navigate(TopLevelDestination.Bookmarks.route)
-                            } else if (selectedIndex == 2) {
-                                navController.navigate(TopLevelDestination.Delete.route)
-                            } else {
-                                navController.navigate(TopLevelDestination.Home.route)
+                            when (selectedIndex) {
+                                1 -> navController.navigate(TopLevelDestination.Bookmarks.route)
+                                2 -> navController.navigate(TopLevelDestination.Delete.route)
+                                else -> navController.navigate(TopLevelDestination.Home.route)
                             }
                         },
                         icon = {
-                            val id =
-                                if (index == selectedIndex) bottomItem.selectedIcon else bottomItem.unselectedIcon
+                            val iconId = if (index == selectedIndex) bottomItem.selectedIcon else bottomItem.unselectedIcon
                             Icon(
-                                painter = painterResource(id = id),
+                                painter = painterResource(id = iconId),
                                 contentDescription = "bottom nav item"
                             )
-                        })
+                        }
+                    )
                 }
             }
-        }) { innerPadding ->
+        }
+    ) { innerPadding ->
         AppNavigation(
-            viewModel = viewModel,
             navController = navController,
             modifier = Modifier.padding(innerPadding)
         )

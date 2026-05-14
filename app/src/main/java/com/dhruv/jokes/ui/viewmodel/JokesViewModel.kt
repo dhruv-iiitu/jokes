@@ -3,76 +3,73 @@ package com.dhruv.jokes.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dhruv.jokes.repos.JokesRepo
-import com.dhruv.jokes.ui.screens.UIstate
+import com.dhruv.jokes.ui.contract.JokesContract
 import com.dhruv.jokes.utils.debugLog
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class JokesViewModel @Inject constructor(private val jokesRepo: JokesRepo): ViewModel() {
+class JokesViewModel @Inject constructor(
+    private val jokesRepo: JokesRepo
+) : ViewModel() {
 
-    private val _homeUIstate: MutableStateFlow<UIstate> = MutableStateFlow(UIstate.Initial)
-    val homeUiState = _homeUIstate.asStateFlow()
+    // Single state atom — MVI principle
+    private val _state = MutableStateFlow(JokesContract.State())
+    val state = _state.asStateFlow()
 
-    private val _bookmarkUIstate: MutableStateFlow<UIstate> = MutableStateFlow(UIstate.Initial)
-    val bookmarkUiState = _bookmarkUIstate.asStateFlow()
+    // One-time side effects delivered via Channel (never replayed)
+    private val _sideEffect = Channel<JokesContract.SideEffect>(Channel.BUFFERED)
+    val sideEffect = _sideEffect.receiveAsFlow()
 
-    init{
-        debugLog("view model created")
-        fetchUnbookmarkedJokes()
+    init {
+        processIntent(JokesContract.Intent.LoadJokes)
     }
-    private fun fetchUnbookmarkedJokes(genre: String = "Any", amount: Int = 10) {
+
+    fun processIntent(intent: JokesContract.Intent) {
+        when (intent) {
+            is JokesContract.Intent.LoadJokes -> loadJokes()
+            is JokesContract.Intent.UpdateBookmark -> updateBookmark(intent.id, intent.bookmarked)
+            is JokesContract.Intent.DeleteJoke -> deleteJoke(intent.id)
+        }
+    }
+
+    // --- Private reducers ---
+
+    private fun loadJokes() {
         viewModelScope.launch {
-            _homeUIstate.value = UIstate.Loading
+            _state.update { it.copy(isLoading = true, error = null) }
             try {
-               jokesRepo.fetchUnbookmarkedJokes(genre = genre, amount = amount).collect{ jokesList->
-                    _homeUIstate.value = UIstate.Success(jokesList)
+                jokesRepo.fetchUnbookmarkedJokes(genre = "Any", amount = 10).collect { jokes ->
+                    _state.update { it.copy(isLoading = false, jokes = jokes) }
                 }
-            }catch (e: Exception){
-                _homeUIstate.value = UIstate.Error(e.message.toString())
+            } catch (e: Exception) {
+                _state.update { it.copy(isLoading = false, error = e.message ?: "Unknown error") }
                 debugLog(e.message.toString())
             }
         }
     }
 
-    fun updateBookmarkStatus(id: Int, bookmarked: Boolean) {
+    private fun updateBookmark(id: Int, bookmarked: Boolean) {
         viewModelScope.launch {
             jokesRepo.updateBookmarkStatus(id, bookmarked)
+            val message = if (bookmarked) "Joke Bookmarked" else "Joke Unbookmarked"
+            _sideEffect.send(JokesContract.SideEffect.ShowToast(message))
         }
     }
 
-    fun fetchBookmarkedJokes() {
-        _bookmarkUIstate.value = UIstate.Loading
-        viewModelScope.launch {
-                try {
-                jokesRepo.fetchBookmarkedJokes().collect{ jokesList->
-                    _bookmarkUIstate.value = UIstate.Success(jokesList = jokesList)
-                }
-            } catch (e: Exception) {
-                _bookmarkUIstate.value = UIstate.Error(e.message.toString())
-            }
-        }
-    }
-
-    fun deleteUnbookmarkedJokes() {
+    private fun deleteJoke(id: Int) {
         viewModelScope.launch {
             try {
-                jokesRepo.deleteUnbookmarkedJokes()
+                jokesRepo.deleteJokeViaId(id)
+                _sideEffect.send(JokesContract.SideEffect.ShowToast("Joke Deleted"))
             } catch (e: Exception) {
-                debugLog("Error to delete all unbookmarked joke with msg ${e.message}")
-            }
-        }
-    }
-
-    fun deleteJokeViaId(id: Int){
-        viewModelScope.launch {
-            try {
-                jokesRepo.deleteJokeViaId(id = id)
-            } catch (e: Exception) {
-                debugLog("Error to delete joke with id $id with msg ${e.message}")
+                debugLog("Error deleting joke $id: ${e.message}")
             }
         }
     }

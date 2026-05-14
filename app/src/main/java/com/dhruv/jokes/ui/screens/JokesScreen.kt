@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.dhruv.jokes.R
 import com.dhruv.jokes.data.local.JokesEntity
+import com.dhruv.jokes.ui.contract.JokesContract
 import com.dhruv.jokes.ui.viewmodel.JokesViewModel
 import com.dhruv.jokes.utils.CustomRowWith2Values
 import com.dhruv.jokes.utils.ErrorMessage
@@ -55,9 +56,20 @@ fun JokesScreen(
     modifier: Modifier = Modifier,
     viewModel: JokesViewModel = hiltViewModel()
 ) {
-    val homeUiState by viewModel.homeUiState.collectAsState()
-    when (homeUiState) {
-        is UIstate.Loading -> {
+    val context = LocalContext.current
+    val state by viewModel.state.collectAsState()
+
+    // Consume one-time side effects
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is JokesContract.SideEffect.ShowToast -> toastMsg(context, effect.message)
+            }
+        }
+    }
+
+    when {
+        state.isLoading -> {
             Column(
                 modifier = modifier,
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -67,68 +79,51 @@ fun JokesScreen(
             }
         }
 
-        is UIstate.Error -> {
+        state.error != null -> {
             Column(
                 modifier = modifier,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                val error = (homeUiState as UIstate.Error).message
-                ErrorMessage(error = error)
+                ErrorMessage(error = state.error!!)
             }
         }
 
-        is UIstate.Success -> {
-            val successState = homeUiState as UIstate.Success
-            if (successState.jokesList.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    ErrorMessage(error = "It seems no joke is stored locally! Check your bookmarked jokes.\nIf nothing works you need to restart the app.")
-                }
-            } else {
-                LazyColumn(modifier = modifier) {
-                    items(successState.jokesList, key = { joke ->
-                        joke.id
-                    }) { joke ->
-                        val context = LocalContext.current
-                        val dismissState = rememberSwipeToDismissBoxState()
-                        LaunchedEffect(key1 = dismissState.currentValue) {
-                            when (dismissState.currentValue) {
-                                SwipeToDismissBoxValue.EndToStart -> {
-                                    toastMsg(context = context, msg = "Joke Deleted")
-                                    viewModel.deleteJokeViaId(joke.id)
-                                }
+        state.jokes.isEmpty() -> {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                ErrorMessage(error = "It seems no joke is stored locally! Check your bookmarked jokes.\nIf nothing works you need to restart the app.")
+            }
+        }
 
-                                SwipeToDismissBoxValue.StartToEnd -> {
-                                    toastMsg(context = context, msg = "Joke Bookmarked")
-                                    viewModel.updateBookmarkStatus(id = joke.id, bookmarked = true)
-                                }
-
-                                else -> {}
-                            }
+        else -> {
+            LazyColumn(modifier = modifier) {
+                items(state.jokes, key = { it.id }) { joke ->
+                    val dismissState = rememberSwipeToDismissBoxState()
+                    LaunchedEffect(dismissState.currentValue) {
+                        when (dismissState.currentValue) {
+                            SwipeToDismissBoxValue.EndToStart ->
+                                viewModel.processIntent(JokesContract.Intent.DeleteJoke(joke.id))
+                            SwipeToDismissBoxValue.StartToEnd ->
+                                viewModel.processIntent(JokesContract.Intent.UpdateBookmark(joke.id, true))
+                            else -> {}
                         }
-                        SwipeToDismissBox(state = dismissState, backgroundContent = {
-                            SwipeToDismissBackgroundContent(dismissState)
-                        }
-                        ) {
-                            JokeItem(unbookmarkedJoke = joke) { isBookmarked ->
-                                viewModel.updateBookmarkStatus(joke.id, isBookmarked)
-                                toastMsg(context = context, msg = "Joke Bookmarked")
-                            }
-
+                    }
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        backgroundContent = { SwipeToDismissBackgroundContent(dismissState) }
+                    ) {
+                        JokeItem(unbookmarkedJoke = joke) { isBookmarked ->
+                            viewModel.processIntent(JokesContract.Intent.UpdateBookmark(joke.id, isBookmarked))
                         }
                     }
                 }
             }
         }
-
-        else -> {}
     }
-
-
 }
 
 @Composable
@@ -153,7 +148,7 @@ fun JokeItem(
                 .padding(8.dp)
         ) {
             if (unbookmarkedJoke.type == "single") {
-                unbookmarkedJoke.jokeMessage?.let { joke->
+                unbookmarkedJoke.jokeMessage?.let { joke ->
                     CustomRowWith2Values(
                         modifier = Modifier.weight(1f),
                         value1 = "Joke",
@@ -171,26 +166,28 @@ fun JokeItem(
                 }
             }
 
-            IconToggleButton(checked = unbookmarkedJoke.isBookmarked, onCheckedChange = { value ->
-                addSoundEffect(view = view)
-                updateBookmark(value)
-            }) {
+            IconToggleButton(
+                checked = unbookmarkedJoke.isBookmarked,
+                onCheckedChange = { value ->
+                    addSoundEffect(view)
+                    updateBookmark(value)
+                }
+            ) {
                 Icon(
-                    painter = if (unbookmarkedJoke.isBookmarked) painterResource(id = R.drawable.baseline_bookmark_added_24) else painterResource(
-                        id = R.drawable.outline_bookmark_add_24
-                    ), contentDescription = "bookmark"
+                    painter = if (unbookmarkedJoke.isBookmarked)
+                        painterResource(id = R.drawable.baseline_bookmark_added_24)
+                    else
+                        painterResource(id = R.drawable.outline_bookmark_add_24),
+                    contentDescription = "bookmark"
                 )
             }
         }
     }
-
-
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SwipeToDismissBackgroundContent(dismissState: SwipeToDismissBoxState) {
-    // background color
     val backgroundColor by animateColorAsState(
         when (dismissState.targetValue) {
             SwipeToDismissBoxValue.EndToStart -> Color.Red.copy(alpha = 0.8f)
@@ -198,7 +195,6 @@ fun SwipeToDismissBackgroundContent(dismissState: SwipeToDismissBoxState) {
             else -> Color.White
         }, label = ""
     )
-    // icon size
     val iconScale by animateFloatAsState(
         targetValue = if (
             dismissState.targetValue == SwipeToDismissBoxValue.EndToStart ||
@@ -216,18 +212,14 @@ fun SwipeToDismissBackgroundContent(dismissState: SwipeToDismissBoxState) {
     ) {
         if (dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd) {
             Icon(
-                modifier = Modifier
-                    .scale(iconScale)
-                    .align(Alignment.CenterStart),
+                modifier = Modifier.scale(iconScale).align(Alignment.CenterStart),
                 painter = painterResource(id = R.drawable.outline_bookmark_add_24),
                 contentDescription = "Bookmark",
                 tint = Color.White
             )
         } else {
             Icon(
-                modifier = Modifier
-                    .scale(iconScale)
-                    .align(Alignment.CenterEnd),
+                modifier = Modifier.scale(iconScale).align(Alignment.CenterEnd),
                 imageVector = Icons.Outlined.Delete,
                 contentDescription = "Delete",
                 tint = Color.White

@@ -1,6 +1,5 @@
 package com.dhruv.jokes.ui.screens
 
-
 import android.content.Intent
 import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,9 +33,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,7 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.dhruv.jokes.ui.viewmodel.JokesViewModel
+import com.dhruv.jokes.ui.contract.BookmarksContract
+import com.dhruv.jokes.ui.viewmodel.BookmarksViewModel
 import com.dhruv.jokes.utils.DismissButton
 import com.dhruv.jokes.utils.ErrorMessage
 import com.dhruv.jokes.utils.LoadIndicator
@@ -60,21 +57,29 @@ import com.dhruv.jokes.utils.toastMsg
 @Composable
 fun BookmarksScreen(
     modifier: Modifier = Modifier,
-    viewModel: JokesViewModel = hiltViewModel()
+    viewModel: BookmarksViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
+    val view: View = LocalView.current
     val bottomSheetState = rememberModalBottomSheetState()
-    var showBottomSheet by rememberSaveable {
-        mutableStateOf(false)
+    val state by viewModel.state.collectAsState()
+
+    // Load bookmarks when this screen first appears
+    LaunchedEffect(Unit) {
+        viewModel.processIntent(BookmarksContract.Intent.LoadBookmarks)
     }
-    var jokeToShare by rememberSaveable {
-        mutableStateOf("")
+
+    // Consume one-time side effects
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is BookmarksContract.SideEffect.ShowToast -> toastMsg(context, effect.message)
+            }
+        }
     }
-    LaunchedEffect(key1 = Unit) {
-        viewModel.fetchBookmarkedJokes()
-    }
-    val bookmarkUiState by viewModel.bookmarkUiState.collectAsState()
-    when (bookmarkUiState) {
-        is UIstate.Loading -> {
+
+    when {
+        state.isLoading -> {
             Column(
                 modifier = modifier,
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -84,114 +89,92 @@ fun BookmarksScreen(
             }
         }
 
-        is UIstate.Error -> {
+        state.error != null -> {
             Column(
                 modifier = modifier,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                val error = (bookmarkUiState as UIstate.Error).message
-                ErrorMessage(error = error)
+                ErrorMessage(error = state.error!!)
             }
         }
 
-        is UIstate.Success -> {
-            val successState = bookmarkUiState as UIstate.Success
-            if (successState.jokesList.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    ErrorMessage(error = "You don't have any bookmarks!")
-                }
-            } else {
-                LazyColumn(modifier = modifier) {
-                    items(successState.jokesList, key = { joke ->
-                        joke.id
-                    }) { joke ->
-                        val context = LocalContext.current
-                        val dismissState = rememberSwipeToDismissBoxState()
-                        LaunchedEffect(key1 = dismissState.currentValue) {
-                            when (dismissState.currentValue) {
-                                SwipeToDismissBoxValue.EndToStart -> {
-                                    toastMsg(context = context, msg = "Joke Deleted")
-                                    viewModel.deleteJokeViaId(joke.id)
-                                }
+        state.jokes.isEmpty() -> {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                ErrorMessage(error = "You don't have any bookmarks!")
+            }
+        }
 
-                                else -> {}
+        else -> {
+            LazyColumn(modifier = modifier) {
+                items(state.jokes, key = { it.id }) { joke ->
+                    val dismissState = rememberSwipeToDismissBoxState()
+                    LaunchedEffect(dismissState.currentValue) {
+                        when (dismissState.currentValue) {
+                            SwipeToDismissBoxValue.EndToStart ->
+                                viewModel.processIntent(BookmarksContract.Intent.DeleteJoke(joke.id))
+                            else -> {}
+                        }
+                    }
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        enableDismissFromStartToEnd = false,
+                        backgroundContent = {
+                            val backgroundColor by animateColorAsState(
+                                when (dismissState.targetValue) {
+                                    SwipeToDismissBoxValue.EndToStart -> Color.Red.copy(alpha = 0.8f)
+                                    else -> Color.White
+                                }, label = ""
+                            )
+                            val iconScale by animateFloatAsState(
+                                targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) 1.3f else 0.5f,
+                                label = ""
+                            )
+                            Box(
+                                Modifier
+                                    .padding(16.dp)
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(color = backgroundColor)
+                                    .padding(16.dp)
+                            ) {
+                                Icon(
+                                    modifier = Modifier.scale(iconScale).align(Alignment.CenterEnd),
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = "Delete",
+                                    tint = Color.White
+                                )
                             }
                         }
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            enableDismissFromStartToEnd = false,
-                            backgroundContent = {
-                                // background color
-                                val backgroundColor by animateColorAsState(
-                                    when (dismissState.targetValue) {
-                                        SwipeToDismissBoxValue.EndToStart -> Color.Red.copy(alpha = 0.8f)
-                                        else -> Color.White
-                                    }, label = ""
-                                )
-                                // icon size
-                                val iconScale by animateFloatAsState(
-                                    targetValue = if (
-                                        dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
-                                    ) 1.3f else 0.5f,
-                                    label = ""
-                                )
-                                Box(
-                                    Modifier
-                                        .padding(16.dp)
-                                        .fillMaxSize()
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(color = backgroundColor)
-                                        .padding(16.dp),
-                                ) {
-
-                                    Icon(
-                                        modifier = Modifier
-                                            .scale(iconScale)
-                                            .align(Alignment.CenterEnd),
-                                        imageVector = Icons.Outlined.Delete,
-                                        contentDescription = "Delete",
-                                        tint = Color.White
-                                    )
-                                }
+                    ) {
+                        JokeItem(
+                            unbookmarkedJoke = joke,
+                            jokePressed = { selectedJoke ->
+                                viewModel.processIntent(BookmarksContract.Intent.ShareJoke(selectedJoke))
                             }
-                        ) {
-                            JokeItem(unbookmarkedJoke = joke, jokePressed = { joke ->
-                                jokeToShare = if (joke.type == "single") {
-                                    "Joke: ${joke.jokeMessage}"
-                                } else {
-                                    "Setup: ${joke.setup} \nPunchline: ${joke.punchline}"
-                                }
-                                showBottomSheet = true
-                            }) { isBookmarked ->
-                                toastMsg(context = context, msg = "Joke Unbookmarked")
-                                viewModel.updateBookmarkStatus(joke.id, isBookmarked)
-                            }
+                        ) { isBookmarked ->
+                            viewModel.processIntent(BookmarksContract.Intent.UpdateBookmark(joke.id, isBookmarked))
                         }
                     }
                 }
             }
         }
-
-        else -> {}
     }
+
+    // Share bottom sheet — driven entirely by BookmarksContract.State
     val shareLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
-    val view: View = LocalView.current
-    if (showBottomSheet) {
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+
+    if (state.showShareSheet) {
         ModalBottomSheet(
-            onDismissRequest = {
-                showBottomSheet = false
-            },
+            onDismissRequest = { viewModel.processIntent(BookmarksContract.Intent.DismissShareSheet) },
             sheetState = bottomSheetState
         ) {
-            // Sheet content
             Column(
-                modifier = Modifier,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -211,16 +194,19 @@ fun BookmarksScreen(
                 ) {
                     DismissButton {
                         addSoundEffect(view)
-                        showBottomSheet = false
+                        viewModel.processIntent(BookmarksContract.Intent.DismissShareSheet)
                     }
                     OutlinedButton(onClick = {
                         addSoundEffect(view)
-                        val intent = Intent(Intent.ACTION_SEND).apply {
+                        val jokeText = state.jokeToShare?.let { joke ->
+                            if (joke.type == "single") "Joke: ${joke.jokeMessage}"
+                            else "Setup: ${joke.setup} \nPunchline: ${joke.punchline}"
+                        } ?: ""
+                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, jokeToShare)
+                            putExtra(Intent.EXTRA_TEXT, jokeText)
                         }
-                        val chooser = Intent.createChooser(intent, "Share joke via...")
-                        shareLauncher.launch(chooser)
+                        shareLauncher.launch(Intent.createChooser(sendIntent, "Share joke via..."))
                     }) {
                         Text(text = "Share")
                     }

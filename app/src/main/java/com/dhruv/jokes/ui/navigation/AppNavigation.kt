@@ -10,19 +10,18 @@ import com.dhruv.jokes.ui.destinations.TopLevelDestination
 import com.dhruv.jokes.ui.screens.BookmarksScreen
 import com.dhruv.jokes.ui.screens.DeleteScreen
 import com.dhruv.jokes.ui.screens.JokesScreen
-import com.dhruv.jokes.ui.viewmodel.JokesViewModel
 
 @Composable
-fun AppNavigation(viewModel: JokesViewModel, navController: NavHostController, modifier: Modifier) {
+fun AppNavigation(navController: NavHostController, modifier: Modifier) {
     NavHost(navController = navController, startDestination = TopLevelDestination.Home.route) {
         composable(route = TopLevelDestination.Home.route) {
-            JokesScreen(viewModel = viewModel, modifier = modifier.fillMaxSize())
+            JokesScreen(modifier = modifier.fillMaxSize())
         }
-        composable(route = TopLevelDestination.Bookmarks.route){
-            BookmarksScreen(viewModel = viewModel, modifier = modifier.fillMaxSize())
+        composable(route = TopLevelDestination.Bookmarks.route) {
+            BookmarksScreen(modifier = modifier.fillMaxSize())
         }
-        composable(route = TopLevelDestination.Delete.route){
-            DeleteScreen(viewModel = viewModel, modifier = modifier.fillMaxSize())
+        composable(route = TopLevelDestination.Delete.route) {
+            DeleteScreen(modifier = modifier.fillMaxSize())
         }
     }
 }

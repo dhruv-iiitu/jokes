@@ -6,31 +6,43 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.dhruv.jokes.ui.viewmodel.JokesViewModel
+import com.dhruv.jokes.ui.contract.DeleteContract
+import com.dhruv.jokes.ui.viewmodel.DeleteViewModel
 import com.dhruv.jokes.utils.DismissButton
 import com.dhruv.jokes.utils.addSoundEffect
+import com.dhruv.jokes.utils.toastMsg
 
 @Composable
 fun DeleteScreen(
     modifier: Modifier,
-    viewModel: JokesViewModel = hiltViewModel()
+    viewModel: DeleteViewModel = hiltViewModel()
 ) {
-    var showDialog by remember { mutableStateOf(true) }
+    val context = LocalContext.current
     val view = LocalView.current
+    val state by viewModel.state.collectAsState()
+
+    // Consume one-time side effects
+    LaunchedEffect(Unit) {
+        viewModel.sideEffect.collect { effect ->
+            when (effect) {
+                is DeleteContract.SideEffect.ShowToast -> toastMsg(context, effect.message)
+            }
+        }
+    }
+
     Column(modifier = modifier) {
-        if (showDialog) {
+        if (state.showDialog) {
             AlertDialog(
                 onDismissRequest = {
-                    // Dismiss the dialog when clicked outside
-                    showDialog = false
+                    viewModel.processIntent(DeleteContract.Intent.DismissDialog)
                 },
                 title = {
                     Text(
@@ -40,23 +52,19 @@ fun DeleteScreen(
                     )
                 },
                 text = {
-                    Text(
-                        text = "This will delete all the unbookmarked jokes from the device.",
-                    )
+                    Text(text = "This will delete all the unbookmarked jokes from the device.")
                 },
                 dismissButton = {
                     DismissButton {
                         addSoundEffect(view)
-                        showDialog = false
+                        viewModel.processIntent(DeleteContract.Intent.DismissDialog)
                     }
                 },
                 confirmButton = {
                     OutlinedButton(
                         onClick = {
-                            // Action when confirm button is clicked
                             addSoundEffect(view)
-                            viewModel.deleteUnbookmarkedJokes()
-                            showDialog = false
+                            viewModel.processIntent(DeleteContract.Intent.ConfirmDelete)
                         }
                     ) {
                         Text("Confirm")
